@@ -2,67 +2,57 @@ import React, { useEffect, useState } from "react";
 import { supabase } from "./supabaseClient";
 import StudyTrackerApp from "./StudyTrackerApp";
 
+// Supabase's auth system is built around "email" as the account identifier,
+// but we never need to actually deliver mail to it. So we take a plain
+// username and turn it into a fake, undeliverable address behind the
+// scenes. This means no SMTP setup, no confirmation emails, nothing.
+function usernameToFakeEmail(username) {
+  const clean = username.trim().toLowerCase().replace(/[^a-z0-9._-]/g, "");
+  return `${clean}@shinjeon.local`;
+}
+
 export default function App() {
   const [session, setSession] = useState(undefined); // undefined = loading, null = logged out
-  const [mode, setMode] = useState("signin"); // "signin" | "signup" | "forgot" | "reset"
-  const [email, setEmail] = useState("");
+  const [mode, setMode] = useState("signin"); // "signin" | "signup"
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [password2, setPassword2] = useState("");
   const [error, setError] = useState("");
-  const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session));
-    const { data: listener } = supabase.auth.onAuthStateChange((event, s) => {
-      setSession(s);
-      if (event === "PASSWORD_RECOVERY") {
-        setMode("reset");
-      }
-    });
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, s) => setSession(s));
     return () => listener.subscription.unsubscribe();
   }, []);
 
-  const resetMessages = () => { setError(""); setMessage(""); };
+  const loginWithKakao = async () => {
+    setError("");
+    const { error } = await supabase.auth.signInWithOAuth({ provider: "kakao" });
+    if (error) setError(error.message);
+    // On success, Kakao redirects away from the page automatically.
+  };
 
   const submitSignIn = async (e) => {
     e.preventDefault();
-    resetMessages(); setLoading(true);
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    setError(""); setLoading(true);
+    const { error } = await supabase.auth.signInWithPassword({ email: usernameToFakeEmail(username), password });
     setLoading(false);
-    if (error) setError(error.message);
+    if (error) setError("아이디 또는 비밀번호가 맞지 않아요.");
   };
 
   const submitSignUp = async (e) => {
     e.preventDefault();
-    resetMessages();
+    setError("");
+    if (username.trim().length < 3) { setError("아이디는 3자 이상으로 해주세요."); return; }
     if (password !== password2) { setError("비밀번호가 서로 달라요. 다시 확인해주세요."); return; }
     setLoading(true);
-    const { error } = await supabase.auth.signUp({ email, password });
+    const { error } = await supabase.auth.signUp({ email: usernameToFakeEmail(username), password });
     setLoading(false);
-    if (error) setError(error.message);
-  };
-
-  const submitForgot = async (e) => {
-    e.preventDefault();
-    resetMessages(); setLoading(true);
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: window.location.origin,
-    });
-    setLoading(false);
-    if (error) setError(error.message);
-    else setMessage("비밀번호 재설정 링크를 이메일로 보냈어요. 메일함을 확인해주세요.");
-  };
-
-  const submitReset = async (e) => {
-    e.preventDefault();
-    resetMessages();
-    if (password !== password2) { setError("비밀번호가 서로 달라요. 다시 확인해주세요."); return; }
-    setLoading(true);
-    const { error } = await supabase.auth.updateUser({ password });
-    setLoading(false);
-    if (error) setError(error.message);
-    else setMessage("비밀번호가 변경됐어요! 이제 이 비밀번호로 로그인하시면 돼요.");
+    if (error) {
+      if (error.message.includes("already registered")) setError("이미 사용 중인 아이디예요. 다른 아이디를 써주세요.");
+      else setError(error.message);
+    }
   };
 
   if (session === undefined) {
@@ -73,68 +63,71 @@ export default function App() {
     );
   }
 
-  // Logged in and not in the middle of a password reset flow → show the app
-  if (session && mode !== "reset") {
+  if (session) {
     return <StudyTrackerApp />;
   }
 
   const inputStyle = { width: "100%", padding: "8px 10px", fontSize: 14, border: "1px solid #C7D3DA", marginBottom: 8, boxSizing: "border-box" };
   const buttonStyle = { width: "100%", padding: "10px", background: "#2C6E8E", color: "#fff", border: "none", fontSize: 14 };
+  const kakaoButtonStyle = { width: "100%", padding: "10px", background: "#FEE500", color: "#191919", border: "none", fontSize: 14, fontWeight: 600, marginBottom: 16, cursor: "pointer" };
   const linkStyle = { background: "none", border: "none", color: "#2C6E8E", fontSize: 12, textDecoration: "underline", cursor: "pointer" };
 
   return (
     <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "sans-serif", background: "#EDEFF2" }}>
       <div style={{ background: "#fff", padding: 32, borderRadius: 4, width: 320, border: "1px solid #C7D3DA" }}>
-        <h1 style={{ fontSize: 18, fontWeight: 700, marginBottom: 4, color: "#16233B" }}>건축사시험 스터디 로그</h1>
+        <h1 style={{ fontSize: 18, fontWeight: 700, marginBottom: 16, color: "#16233B" }}>건축사시험 스터디 로그</h1>
 
-        {mode === "reset" ? (
-          <>
-            <p style={{ fontSize: 13, color: "#3E4E68", marginBottom: 16 }}>새 비밀번호를 설정해주세요.</p>
-            <form onSubmit={submitReset}>
-              <input type="password" required minLength={6} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="새 비밀번호 (6자 이상)" style={inputStyle} />
-              <input type="password" required minLength={6} value={password2} onChange={(e) => setPassword2(e.target.value)} placeholder="새 비밀번호 확인" style={inputStyle} />
-              <button type="submit" disabled={loading} style={buttonStyle}>{loading ? "처리 중..." : "비밀번호 변경"}</button>
-            </form>
-          </>
-        ) : mode === "forgot" ? (
-          <>
-            <p style={{ fontSize: 13, color: "#3E4E68", marginBottom: 16 }}>가입하신 이메일로 재설정 링크를 보내드려요.</p>
-            <form onSubmit={submitForgot}>
-              <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" style={inputStyle} />
-              <button type="submit" disabled={loading} style={buttonStyle}>{loading ? "처리 중..." : "재설정 링크 보내기"}</button>
-            </form>
-            <button type="button" onClick={() => { setMode("signin"); resetMessages(); }} style={{ ...linkStyle, marginTop: 12, display: "block" }}>로그인으로 돌아가기</button>
-          </>
-        ) : (
-          <>
-            <p style={{ fontSize: 13, color: "#3E4E68", marginBottom: 16 }}>
-              {mode === "signup" ? "이메일과 비밀번호로 계정을 만들어주세요." : "이메일과 비밀번호로 로그인해주세요."}
-            </p>
-            <form onSubmit={mode === "signup" ? submitSignUp : submitSignIn}>
-              <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" style={inputStyle} />
-              <input type="password" required minLength={6} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="비밀번호 (6자 이상)" style={inputStyle} />
-              {mode === "signup" && (
-                <input type="password" required minLength={6} value={password2} onChange={(e) => setPassword2(e.target.value)} placeholder="비밀번호 확인" style={inputStyle} />
-              )}
-              <button type="submit" disabled={loading} style={buttonStyle}>
-                {loading ? "처리 중..." : mode === "signup" ? "회원가입" : "로그인"}
-              </button>
-            </form>
-            {mode === "signin" && (
-              <button type="button" onClick={() => { setMode("forgot"); resetMessages(); }} style={{ ...linkStyle, marginTop: 10, display: "block" }}>비밀번호를 잊으셨나요?</button>
-            )}
-            <button
-              type="button"
-              onClick={() => { setMode(mode === "signup" ? "signin" : "signup"); resetMessages(); }}
-              style={{ ...linkStyle, marginTop: 6, display: "block" }}
-            >
-              {mode === "signup" ? "이미 계정이 있어요 (로그인하기)" : "계정이 없어요 (회원가입하기)"}
-            </button>
-          </>
-        )}
+        <button type="button" onClick={loginWithKakao} style={kakaoButtonStyle}>
+          카카오로 3초만에 로그인
+        </button>
 
+        <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "16px 0", color: "#8A93A6", fontSize: 11 }}>
+          <div style={{ flex: 1, height: 1, background: "#C7D3DA" }} />
+          또는 아이디로 로그인
+          <div style={{ flex: 1, height: 1, background: "#C7D3DA" }} />
+        </div>
+
+        <form onSubmit={mode === "signup" ? submitSignUp : submitSignIn}>
+          <input
+            type="text"
+            required
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            placeholder="아이디 (영문/숫자, 3자 이상)"
+            style={inputStyle}
+          />
+          <input
+            type="password"
+            required
+            minLength={6}
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="비밀번호 (6자 이상)"
+            style={inputStyle}
+          />
+          {mode === "signup" && (
+            <input
+              type="password"
+              required
+              minLength={6}
+              value={password2}
+              onChange={(e) => setPassword2(e.target.value)}
+              placeholder="비밀번호 확인"
+              style={inputStyle}
+            />
+          )}
+          <button type="submit" disabled={loading} style={buttonStyle}>
+            {loading ? "처리 중..." : mode === "signup" ? "가입하기" : "로그인"}
+          </button>
+        </form>
         {error && <p style={{ fontSize: 12, color: "#C4453D", marginTop: 8 }}>{error}</p>}
-        {message && <p style={{ fontSize: 12, color: "#4C8C6B", marginTop: 8 }}>{message}</p>}
+        <button
+          type="button"
+          onClick={() => { setMode(mode === "signup" ? "signin" : "signup"); setError(""); }}
+          style={{ ...linkStyle, marginTop: 12, display: "block" }}
+        >
+          {mode === "signup" ? "이미 아이디가 있어요 (로그인하기)" : "아이디가 없어요 (가입하기)"}
+        </button>
       </div>
     </div>
   );
