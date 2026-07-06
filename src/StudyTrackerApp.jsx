@@ -591,44 +591,121 @@ function shortLabel(s) { return SHORT_LABEL[s] || s.slice(0, 2); }
 
 function PastExamsGrid({ subjects, problems, setProblems }) {
   const rounds = useMemo(buildRounds, []);
-  const [selRoundKey, setSelRoundKey] = useState(roundKey(rounds[0]));
-  const [selSubject, setSelSubject] = useState(subjects[0] || "");
+  const [selectedId, setSelectedId] = useState(null);
   const seeded = useMemo(() => problems.filter(p => p.seeded), [problems]);
   const doneCount = seeded.filter(p => p.attempts.length > 0).length;
+  const selected = seeded.find(p => p.id === selectedId);
 
-  const selRound = parseRoundKey(selRoundKey);
-  const selected = seeded.find(p => p.year === selRound.year && p.round === selRound.round && p.subject === selSubject);
-
-  const addAttempt = (problemId) => setProblems(prev => prev.map(p => p.id === problemId ? { ...p, attempts: [...p.attempts, newAttempt()] } : p));
+  const addAttempt = (problemId) => { setProblems(prev => prev.map(p => p.id === problemId ? { ...p, attempts: [...p.attempts, newAttempt()] } : p)); setSelectedId(problemId); };
   const updateAttempt = (problemId, attemptId, patch) => setProblems(prev => prev.map(p => p.id === problemId ? { ...p, attempts: p.attempts.map(a => a.id === attemptId ? { ...a, ...patch } : a) } : p));
   const removeAttempt = (problemId, attemptId) => setProblems(prev => prev.map(p => p.id === problemId ? { ...p, attempts: p.attempts.filter(a => a.id !== attemptId) } : p));
 
   return (
     <Card>
       <SectionLabel n="01">과년도 기출 (2010~2026)</SectionLabel>
-      <div className="text-xs mb-3" style={{ color: C.inkSoft }}>총 {seeded.length}문제 중 {doneCount}개 풀이</div>
-      <div className="grid grid-cols-2 gap-2 mb-3">
-        <select value={selRoundKey} onChange={e => setSelRoundKey(e.target.value)} className="border px-2 py-1.5 text-sm" style={{ borderColor: C.paperLine }}>
-          {rounds.map(r => <option key={roundKey(r)} value={roundKey(r)}>{roundLabel(r)}</option>)}
-        </select>
-        <select value={selSubject} onChange={e => setSelSubject(e.target.value)} className="border px-2 py-1.5 text-sm" style={{ borderColor: C.paperLine }}>
-          {subjects.map(s => <option key={s} value={s}>{s}</option>)}
-        </select>
+      <div className="text-xs mb-3" style={{ color: C.inkSoft }}>총 {seeded.length}문제 중 {doneCount}개 풀이 · 칸을 눌러 몇 번 풀었는지 확인하고 기록을 남기세요</div>
+      <div style={{ overflowX: "auto" }}>
+        <table className="text-center" style={{ width: "100%", fontSize: 11 }}>
+          <thead>
+            <tr><th></th>{subjects.map(s => <th key={s} className="py-1" style={{ color: C.inkSoft, fontWeight: 500 }}>{shortLabel(s)}</th>)}</tr>
+          </thead>
+          <tbody>
+            {rounds.map(r => (
+              <tr key={roundKey(r)} className="border-t" style={{ borderColor: C.paperLine }}>
+                <td className="text-left font-mono py-1 pr-2" style={{ color: C.inkSoft, whiteSpace: "nowrap" }}>{roundRowLabel(r)}</td>
+                {subjects.map(s => {
+                  const p = seeded.find(x => x.year === r.year && x.round === r.round && x.subject === s);
+                  if (!p) return <td key={s} />;
+                  const count = p.attempts.length;
+                  const isSel = selectedId === p.id;
+                  return (
+                    <td key={s} className="py-1" style={{ background: isSel ? C.tintAmber : "transparent" }}>
+                      <button onClick={() => setSelectedId(isSel ? null : p.id)} className="w-full flex flex-col items-center justify-center py-0.5" style={{ border: isSel ? `2px solid ${C.amber}` : "none" }}>
+                        {count > 0 ? (
+                          <span className="font-mono font-bold" style={{ color: isSel ? C.amber : C.blueprint, fontSize: 12 }}>{count}</span>
+                        ) : (
+                          <Circle size={14} color={isSel ? C.amber : C.paperLine} />
+                        )}
+                      </button>
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
 
-      {selected ? (
-        <div className="border-t pt-3" style={{ borderColor: C.paperLine }}>
+      {selected && (
+        <div className="mt-3 border-t pt-3" style={{ borderColor: C.paperLine }}>
           <div className="flex items-center justify-between mb-2">
             <div className="text-sm font-medium flex items-center gap-1.5" style={{ color: C.ink }}>
               {selected.attempts.length > 0 ? <CheckCircle2 size={15} color={C.blueprint} /> : <Circle size={15} color={C.paperLine} />}
               {selected.year}년 {selected.round}회 · {selected.subject}
             </div>
-            <button onClick={() => addAttempt(selected.id)} className="px-2 py-1 text-xs border flex items-center gap-1" style={{ background: C.blueprint, borderColor: C.blueprint, color: "#fff" }}><Plus size={12} /> 기록</button>
+            <div className="flex items-center gap-2">
+              <button onClick={() => addAttempt(selected.id)} className="px-2 py-1 text-xs border flex items-center gap-1" style={{ background: C.blueprint, borderColor: C.blueprint, color: "#fff" }}><Plus size={12} /> 기록</button>
+              <button onClick={() => setSelectedId(null)}><X size={14} color={C.inkSoft} /></button>
+            </div>
           </div>
           <AttemptHistory problemId={selected.id} attempts={selected.attempts} updateAttempt={updateAttempt} removeAttempt={removeAttempt} />
         </div>
-      ) : (
-        <div className="text-xs text-center py-3" style={{ color: C.inkSoft }}>이 조합의 문제를 찾을 수 없어요.</div>
+      )}
+    </Card>
+  );
+}
+
+function SolvedOverview({ subjects, problems, setProblems }) {
+  const [open, setOpen] = useState(false);
+  const [expandedIds, setExpandedIds] = useState({});
+  const updateAttempt = (problemId, attemptId, patch) => setProblems(prev => prev.map(p => p.id === problemId ? { ...p, attempts: p.attempts.map(a => a.id === attemptId ? { ...a, ...patch } : a) } : p));
+  const removeAttempt = (problemId, attemptId) => setProblems(prev => prev.map(p => p.id === problemId ? { ...p, attempts: p.attempts.filter(a => a.id !== attemptId) } : p));
+
+  const solved = useMemo(() => problems.filter(p => p.attempts.length > 0), [problems]);
+  const grouped = useMemo(() => {
+    const g = {};
+    subjects.forEach(s => { g[s] = []; });
+    solved.forEach(p => { (g[p.subject] = g[p.subject] || []).push(p); });
+    return g;
+  }, [solved, subjects]);
+
+  const labelFor = (p) => p.seeded ? `${p.year}년 ${p.round}회` : p.source === "기출" ? `${p.year}년 ${p.round}회` : `${p.academy || ""} 과제`;
+
+  return (
+    <Card>
+      <button onClick={() => setOpen(o => !o)} className="w-full flex items-center justify-between">
+        <SectionLabel n="00">지금까지 푼 문제 모아보기 ({solved.length})</SectionLabel>
+        {open ? <ChevronUp size={16} color={C.inkSoft} /> : <ChevronDown size={16} color={C.inkSoft} />}
+      </button>
+      {open && (
+        <div className="space-y-3 mt-2">
+          {solved.length === 0 && <div className="text-xs text-center py-3" style={{ color: C.inkSoft }}>아직 풀어본 문제가 없어요.</div>}
+          {subjects.filter(s => (grouped[s] || []).length > 0).map(s => (
+            <div key={s}>
+              <div className="text-xs font-semibold mb-1" style={{ color: C.inkSoft }}>{s} ({grouped[s].length})</div>
+              <div className="space-y-1">
+                {grouped[s].map(p => {
+                  const correctCount = p.attempts.filter(a => a.correct === true).length;
+                  const wrongCount = p.attempts.filter(a => a.correct === false).length;
+                  const isOpen = !!expandedIds[p.id];
+                  return (
+                    <div key={p.id} className="border" style={{ borderColor: C.paperLine }}>
+                      <button onClick={() => setExpandedIds(e => ({ ...e, [p.id]: !e[p.id] }))} className="w-full flex items-center justify-between px-2 py-1.5 text-left">
+                        <span className="text-xs" style={{ color: C.ink }}><span className="font-mono mr-1" style={{ color: C.inkSoft }}>{labelFor(p)}</span>{p.title || "(제목 없음)"}</span>
+                        <span className="text-xs font-mono flex-shrink-0 ml-2" style={{ color: C.inkSoft }}>{p.attempts.length}회 · 정답{correctCount}·오답{wrongCount}</span>
+                      </button>
+                      {isOpen && (
+                        <div className="p-2 border-t" style={{ borderColor: C.paperLine }}>
+                          <AttemptHistory problemId={p.id} attempts={p.attempts} updateAttempt={updateAttempt} removeAttempt={removeAttempt} />
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
       )}
     </Card>
   );
@@ -694,6 +771,8 @@ function ProblemsTab({ subjects, problems, setProblems, settings, setSettings })
 
   return (
     <div className="space-y-5">
+      <SolvedOverview subjects={subjects} problems={problems} setProblems={setProblems} />
+
       <Card>
         <SectionLabel n="00">과목별 목표 문제 수</SectionLabel>
         <div className="space-y-1.5">
