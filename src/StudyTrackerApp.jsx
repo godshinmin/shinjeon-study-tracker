@@ -79,7 +79,10 @@ async function loadKey(key, fallback, shared = false) {
   try { const r = await window.storage.get(key, shared); return r && r.value ? JSON.parse(r.value) : fallback; } catch (e) { return fallback; }
 }
 async function saveKey(key, value, shared = false) {
-  try { await window.storage.set(key, JSON.stringify(value), shared); } catch (e) { console.error("save failed", key, e); }
+  try {
+    const result = await window.storage.set(key, JSON.stringify(value), shared);
+    return !!result;
+  } catch (e) { console.error("save failed", key, e); return false; }
 }
 
 function fmtDate(d) { const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, "0"), day = String(d.getDate()).padStart(2, "0"); return `${y}-${m}-${day}`; }
@@ -864,20 +867,51 @@ function GradingTab({ problems, setProblems }) {
 }
 
 /* ---------------- Study time (with date picker for past logging) ---------------- */
-function StudyTab({ subjects, studyLog, setStudyLog }) {
+function MockExamCard({ mockBreak1Minutes, setMockBreak1Minutes, mockBreak2Minutes, setMockBreak2Minutes, mockPhases, mockPhaseIndex, mockRemaining, mockRunning, startMock, advanceMock, mockTodayMinutes }) {
+  const currentPhase = mockPhases ? mockPhases[mockPhaseIndex] : null;
+  const isBreak = currentPhase && currentPhase.type === "break";
+  return (
+    <Card className={mockRunning ? "!p-0 overflow-hidden" : ""}>
+      {!mockRunning ? (
+        <>
+          <SectionLabel n="00">모의고사 모드</SectionLabel>
+          <div className="text-xs mb-3" style={{ color: C.inkSoft }}>1·2·3교시 각 3시간씩 실전처럼 이어서 풀어요. 교시 시간만 자동으로 오늘 공부시간에 기록되고, 쉬는시간은 기록되지 않아요. 다른 탭으로 이동해도 계속 진행돼요.</div>
+          <div className="grid grid-cols-2 gap-2 mb-3">
+            <div>
+              <label className="text-xs" style={{ color: C.inkSoft }}>1·2교시 사이 쉬는시간(분)</label>
+              <input type="number" value={mockBreak1Minutes} onChange={e => setMockBreak1Minutes(e.target.value)} placeholder="예: 60" className="w-full border px-2 py-1.5 text-sm font-mono mt-1" style={{ borderColor: C.paperLine }} />
+            </div>
+            <div>
+              <label className="text-xs" style={{ color: C.inkSoft }}>2·3교시 사이 쉬는시간(분)</label>
+              <input type="number" value={mockBreak2Minutes} onChange={e => setMockBreak2Minutes(e.target.value)} placeholder="예: 30" className="w-full border px-2 py-1.5 text-sm font-mono mt-1" style={{ borderColor: C.paperLine }} />
+            </div>
+          </div>
+          <button onClick={startMock} className="w-full py-2 text-sm border flex items-center justify-center gap-1" style={{ background: C.blueprint, borderColor: C.blueprint, color: "#fff" }}><Play size={14} /> 모의고사 시작</button>
+          {mockTodayMinutes > 0 && <div className="text-xs mt-2" style={{ color: C.inkSoft }}>오늘 모의고사 누적: {mockTodayMinutes}분</div>}
+        </>
+      ) : (
+        <div className="p-6 text-center" style={{ background: isBreak ? "#1E3A5F" : "#4A1414" }}>
+          <div className="text-sm font-semibold tracking-widest mb-3" style={{ color: isBreak ? "#8FC1D9" : "#F0A0A0" }}>
+            {isBreak ? "☕ 쉬는시간" : `📝 ${currentPhase.label} 진행 중 (${Math.ceil((mockPhaseIndex + 1) / 2)}/3 교시)`}
+          </div>
+          <div className="font-mono font-bold" style={{ color: "#fff", fontSize: "4.5rem", lineHeight: 1, letterSpacing: "0.02em" }}>{fmtClock(mockRemaining)}</div>
+          <div className="flex gap-2 mt-6">
+            <button onClick={() => advanceMock(currentPhase.seconds - mockRemaining, false)} className="flex-1 py-2.5 text-sm border" style={{ borderColor: "rgba(255,255,255,0.4)", color: "#fff" }}>다음 단계로</button>
+            <button onClick={() => advanceMock(currentPhase.seconds - mockRemaining, true)} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 text-sm border" style={{ borderColor: "rgba(255,255,255,0.4)", color: "#fff", background: "rgba(0,0,0,0.2)" }}><Square size={14} /> 전체 종료</button>
+          </div>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function StudyTab({ subjects, studyLog, setStudyLog, mockProps }) {
   const [selectedDate, setSelectedDate] = useState(todayStr());
   const isToday = selectedDate === todayStr();
   const dayData = studyLog[selectedDate] || {};
   const [manual, setManual] = useState({});
   const [activeTimer, setActiveTimer] = useState(null);
   const [, forceTick] = useState(0);
-
-  const [mockBreak1Minutes, setMockBreak1Minutes] = useState("60");
-  const [mockBreak2Minutes, setMockBreak2Minutes] = useState("30");
-  const [mockPhases, setMockPhases] = useState(null);
-  const [mockPhaseIndex, setMockPhaseIndex] = useState(0);
-  const [mockRemaining, setMockRemaining] = useState(0);
-  const [mockRunning, setMockRunning] = useState(false);
 
   useEffect(() => { if (!activeTimer) return; const id = setInterval(() => forceTick(x => x + 1), 1000); return () => clearInterval(id); }, [activeTimer]);
 
@@ -893,80 +927,11 @@ function StudyTab({ subjects, studyLog, setStudyLog }) {
   };
   const startTimer = (subject) => { if (activeTimer) stopTimer(); setActiveTimer({ subject, startedAt: Date.now() }); };
   const totalDay = Object.values(dayData).reduce((a, b) => a + b, 0);
-
-  const buildMockPhases = () => {
-    const brk1 = Math.max(0, Number(mockBreak1Minutes) || 0) * 60;
-    const brk2 = Math.max(0, Number(mockBreak2Minutes) || 0) * 60;
-    return [
-      { label: "1교시", type: "exam", seconds: 180 * 60 },
-      { label: "쉬는시간", type: "break", seconds: brk1 },
-      { label: "2교시", type: "exam", seconds: 180 * 60 },
-      { label: "쉬는시간", type: "break", seconds: brk2 },
-      { label: "3교시", type: "exam", seconds: 180 * 60 },
-    ];
-  };
-  const startMock = () => {
-    const phases = buildMockPhases();
-    setMockPhases(phases); setMockPhaseIndex(0); setMockRemaining(phases[0].seconds); setMockRunning(true);
-  };
-  const advanceMock = (elapsedSeconds, stopAll) => {
-    const phase = mockPhases[mockPhaseIndex];
-    if (phase.type === "exam" && elapsedSeconds > 0) addMinutes(`모의고사·${phase.label}`, Math.round(elapsedSeconds / 60));
-    if (stopAll) { setMockRunning(false); setMockPhases(null); setMockPhaseIndex(0); setMockRemaining(0); return; }
-    const next = mockPhaseIndex + 1;
-    if (mockPhases && next < mockPhases.length) { setMockPhaseIndex(next); setMockRemaining(mockPhases[next].seconds); }
-    else { setMockRunning(false); setMockPhases(null); setMockPhaseIndex(0); setMockRemaining(0); }
-  };
-  useEffect(() => {
-    if (!mockRunning) return;
-    const id = setInterval(() => {
-      setMockRemaining(r => {
-        if (r <= 1) { clearInterval(id); setTimeout(() => advanceMock(mockPhases[mockPhaseIndex].seconds, false), 0); return 0; }
-        return r - 1;
-      });
-    }, 1000);
-    return () => clearInterval(id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mockRunning, mockPhaseIndex, mockPhases]);
-
-  const mockTodayMinutes = Object.entries(dayData).filter(([k]) => k.startsWith("모의고사·")).reduce((a, [, v]) => a + v, 0);
-  const currentPhase = mockPhases ? mockPhases[mockPhaseIndex] : null;
-  const isBreak = currentPhase && currentPhase.type === "break";
+  const mockTodayMinutes = Object.entries(studyLog[todayStr()] || {}).filter(([k]) => k.startsWith("모의고사·")).reduce((a, [, v]) => a + v, 0);
 
   return (
     <div className="space-y-5">
-      <Card className={mockRunning ? "!p-0 overflow-hidden" : ""}>
-        {!mockRunning ? (
-          <>
-            <SectionLabel n="00">모의고사 모드</SectionLabel>
-            <div className="text-xs mb-3" style={{ color: C.inkSoft }}>1·2·3교시 각 3시간씩 실전처럼 이어서 풀어요. 교시 시간만 자동으로 오늘 공부시간에 기록되고, 쉬는시간은 기록되지 않아요.</div>
-            <div className="grid grid-cols-2 gap-2 mb-3">
-              <div>
-                <label className="text-xs" style={{ color: C.inkSoft }}>1·2교시 사이 쉬는시간(분)</label>
-                <input type="number" value={mockBreak1Minutes} onChange={e => setMockBreak1Minutes(e.target.value)} placeholder="예: 60" className="w-full border px-2 py-1.5 text-sm font-mono mt-1" style={{ borderColor: C.paperLine }} />
-              </div>
-              <div>
-                <label className="text-xs" style={{ color: C.inkSoft }}>2·3교시 사이 쉬는시간(분)</label>
-                <input type="number" value={mockBreak2Minutes} onChange={e => setMockBreak2Minutes(e.target.value)} placeholder="예: 30" className="w-full border px-2 py-1.5 text-sm font-mono mt-1" style={{ borderColor: C.paperLine }} />
-              </div>
-            </div>
-            <button onClick={startMock} className="w-full py-2 text-sm border flex items-center justify-center gap-1" style={{ background: C.blueprint, borderColor: C.blueprint, color: "#fff" }}><Play size={14} /> 모의고사 시작</button>
-            {mockTodayMinutes > 0 && <div className="text-xs mt-2" style={{ color: C.inkSoft }}>오늘 모의고사 누적: {mockTodayMinutes}분</div>}
-          </>
-        ) : (
-          <div className="p-6 text-center" style={{ background: isBreak ? "#1E3A5F" : "#4A1414" }}>
-            <div className="text-sm font-semibold tracking-widest mb-3" style={{ color: isBreak ? "#8FC1D9" : "#F0A0A0" }}>
-              {isBreak ? "☕ 쉬는시간" : `📝 ${currentPhase.label} 진행 중 (${Math.ceil((mockPhaseIndex + 1) / 2)}/3 교시)`}
-            </div>
-            <div className="font-mono font-bold" style={{ color: "#fff", fontSize: "4.5rem", lineHeight: 1, letterSpacing: "0.02em" }}>{fmtClock(mockRemaining)}</div>
-            <div className="flex gap-2 mt-6">
-              <button onClick={() => advanceMock(currentPhase.seconds - mockRemaining, false)} className="flex-1 py-2.5 text-sm border" style={{ borderColor: "rgba(255,255,255,0.4)", color: "#fff" }}>다음 단계로</button>
-              <button onClick={() => advanceMock(currentPhase.seconds - mockRemaining, true)} className="flex-1 flex items-center justify-center gap-1.5 py-2.5 text-sm border" style={{ borderColor: "rgba(255,255,255,0.4)", color: "#fff", background: "rgba(0,0,0,0.2)" }}><Square size={14} /> 전체 종료</button>
-            </div>
-          </div>
-        )}
-      </Card>
-
+      <MockExamCard {...mockProps} mockTodayMinutes={mockTodayMinutes} />
       <Card>
         <SectionLabel n="01">날짜 선택</SectionLabel>
         <div className="flex items-center gap-2">
@@ -1765,7 +1730,7 @@ function AdminUnlock({ adminCode, onUnlock }) {
   );
 }
 
-function SettingsTab({ settings, setSettings, subjects, setSubjects, onReset, onOpenReport, onExport, onImport }) {
+function SettingsTab({ settings, setSettings, subjects, setSubjects, onReset, onOpenReport, onExport, onImport, saveAll, saveStatus }) {
   const [newSubject, setNewSubject] = useState("");
   const [importMsg, setImportMsg] = useState("");
   const fileRef = useRef(null);
@@ -1875,6 +1840,18 @@ function SettingsTab({ settings, setSettings, subjects, setSubjects, onReset, on
         </div>
       </Card>
       <Card>
+        <SectionLabel n="●">저장 상태</SectionLabel>
+        <p className="text-sm mb-2" style={{ color: C.inkSoft }}>모든 내용은 변경 즉시 자동으로 저장돼요. 혹시 인터넷이 불안정했거나 저장이 안 됐을까 걱정되면 아래 버튼으로 지금 바로 다시 저장해보세요.</p>
+        <button onClick={saveAll} className="w-full py-2 text-sm border flex items-center justify-center gap-1.5" style={{
+          background: saveStatus === "error" ? C.tintRed : C.blueprint,
+          borderColor: saveStatus === "error" ? C.red : C.blueprint,
+          color: saveStatus === "error" ? C.red : "#fff",
+        }}>
+          {saveStatus === "saving" ? "저장 중…" : saveStatus === "error" ? "⚠ 저장 실패 — 다시 시도" : "지금 모두 저장하기"}
+        </button>
+        {saveStatus === "saved" && <div className="text-xs mt-1.5" style={{ color: C.green }}>✓ 방금 저장 완료됐어요.</div>}
+      </Card>
+      <Card>
         <SectionLabel n="07">데이터 백업</SectionLabel>
         <p className="text-sm mb-2" style={{ color: C.inkSoft }}>기기를 바꾸거나 독립 앱으로 옮길 때를 대비해 전체 데이터를 파일로 저장하거나 불러올 수 있어요.</p>
         <div className="flex gap-2">
@@ -1916,6 +1893,55 @@ export default function App() {
   const [attendance, setAttendance] = useState({});
   const [drawing, setDrawing] = useState({});
 
+  // Mock exam state lives here (not inside StudyTab) so it survives switching tabs.
+  const [mockBreak1Minutes, setMockBreak1Minutes] = useState("60");
+  const [mockBreak2Minutes, setMockBreak2Minutes] = useState("30");
+  const [mockPhases, setMockPhases] = useState(null);
+  const [mockPhaseIndex, setMockPhaseIndex] = useState(0);
+  const [mockRemaining, setMockRemaining] = useState(0);
+  const [mockRunning, setMockRunning] = useState(false);
+
+  const addMockMinutes = (subjectLabel, mins) => {
+    const today = todayStr();
+    setStudyLog(prev => { const day = { ...(prev[today] || {}) }; day[subjectLabel] = Math.max(0, (day[subjectLabel] || 0) + mins); return { ...prev, [today]: day }; });
+  };
+  const buildMockPhases = () => {
+    const brk1 = Math.max(0, Number(mockBreak1Minutes) || 0) * 60;
+    const brk2 = Math.max(0, Number(mockBreak2Minutes) || 0) * 60;
+    return [
+      { label: "1교시", type: "exam", seconds: 180 * 60 },
+      { label: "쉬는시간", type: "break", seconds: brk1 },
+      { label: "2교시", type: "exam", seconds: 180 * 60 },
+      { label: "쉬는시간", type: "break", seconds: brk2 },
+      { label: "3교시", type: "exam", seconds: 180 * 60 },
+    ];
+  };
+  const startMock = () => {
+    const phases = buildMockPhases();
+    setMockPhases(phases); setMockPhaseIndex(0); setMockRemaining(phases[0].seconds); setMockRunning(true);
+  };
+  const advanceMock = (elapsedSeconds, stopAll) => {
+    const phase = mockPhases[mockPhaseIndex];
+    if (phase.type === "exam" && elapsedSeconds > 0) addMockMinutes(`모의고사·${phase.label}`, Math.round(elapsedSeconds / 60));
+    if (stopAll) { setMockRunning(false); setMockPhases(null); setMockPhaseIndex(0); setMockRemaining(0); return; }
+    const next = mockPhaseIndex + 1;
+    if (mockPhases && next < mockPhases.length) { setMockPhaseIndex(next); setMockRemaining(mockPhases[next].seconds); }
+    else { setMockRunning(false); setMockPhases(null); setMockPhaseIndex(0); setMockRemaining(0); }
+  };
+  useEffect(() => {
+    if (!mockRunning) return;
+    const id = setInterval(() => {
+      setMockRemaining(r => {
+        if (r <= 1) { clearInterval(id); setTimeout(() => advanceMock(mockPhases[mockPhaseIndex].seconds, false), 0); return 0; }
+        return r - 1;
+      });
+    }, 1000);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mockRunning, mockPhaseIndex, mockPhases]);
+  const mockProps = { mockBreak1Minutes, setMockBreak1Minutes, mockBreak2Minutes, setMockBreak2Minutes, mockPhases, mockPhaseIndex, mockRemaining, mockRunning, startMock, advanceMock };
+  const currentMockPhase = mockPhases ? mockPhases[mockPhaseIndex] : null;
+
   useEffect(() => {
     (async () => {
       const [s, sub, p, sl, at, dr] = await Promise.all([
@@ -1939,12 +1965,25 @@ export default function App() {
     })();
   }, []);
 
-  useEffect(() => { if (loaded) saveKey("settings", settings); }, [settings, loaded]);
-  useEffect(() => { if (loaded) saveKey("subjects", subjects); }, [subjects, loaded]);
-  useEffect(() => { if (loaded) saveKey("problems", problems); }, [problems, loaded]);
-  useEffect(() => { if (loaded) saveKey("studyLog", studyLog); }, [studyLog, loaded]);
-  useEffect(() => { if (loaded) saveKey("attendance", attendance); }, [attendance, loaded]);
-  useEffect(() => { if (loaded) saveKey("drawing", drawing); }, [drawing, loaded]);
+  const [saveStatus, setSaveStatus] = useState("idle"); // idle | saving | saved | error
+  const saveAll = async () => {
+    setSaveStatus("saving");
+    const results = await Promise.all([
+      saveKey("settings", settings),
+      saveKey("subjects", subjects),
+      saveKey("problems", problems),
+      saveKey("studyLog", studyLog),
+      saveKey("attendance", attendance),
+      saveKey("drawing", drawing),
+    ]);
+    setSaveStatus(results.every(Boolean) ? "saved" : "error");
+  };
+  useEffect(() => {
+    if (!loaded) return;
+    const id = setTimeout(saveAll, 500);
+    return () => clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settings, subjects, problems, studyLog, attendance, drawing, loaded]);
 
   const resetAll = async () => {
     if (!window.confirm("모든 데이터를 삭제할까요? 되돌릴 수 없습니다.")) return;
@@ -2014,16 +2053,32 @@ export default function App() {
             <img src={LOGO_SRC} alt="신전스퀘어" style={{ width: 24, height: 24 }} />
             <div className="text-xs font-mono tracking-widest" style={{ color: C.blueprint }}>SELF-STUDY DIMENSIONING TOOL</div>
           </div>
-          <h1 className="text-xl font-bold mb-4 md:hidden" style={{ color: C.ink }}>{settings.studentName ? `${settings.studentName}님의 스터디 로그` : "건축사시험 스터디 로그"}</h1>
+          <h1 className="text-xl font-bold mb-1 md:hidden" style={{ color: C.ink }}>{settings.studentName ? `${settings.studentName}님의 스터디 로그` : "건축사시험 스터디 로그"}</h1>
+          <button onClick={saveAll} className="text-xs mb-4 px-2 py-1 border flex items-center gap-1.5 w-fit" style={{
+            borderColor: saveStatus === "error" ? C.red : C.paperLine,
+            color: saveStatus === "error" ? C.red : saveStatus === "saving" ? C.blueprint : C.inkSoft,
+            background: saveStatus === "error" ? C.tintRed : "transparent",
+          }}>
+            {saveStatus === "saving" && "● 저장 중…"}
+            {saveStatus === "saved" && "✓ 저장됨"}
+            {saveStatus === "error" && "⚠ 저장 실패 — 탭하여 다시 시도"}
+            {saveStatus === "idle" && "저장 상태 확인"}
+          </button>
+          {mockRunning && tab !== "study" && (
+            <button onClick={() => setTab("study")} className="w-full mb-4 px-3 py-2.5 text-sm flex items-center justify-between" style={{ background: currentMockPhase && currentMockPhase.type === "break" ? "#1E3A5F" : "#4A1414", color: "#fff" }}>
+              <span>{currentMockPhase && currentMockPhase.type === "break" ? "☕ 쉬는시간" : `📝 ${currentMockPhase ? currentMockPhase.label : ""} 진행 중`} · {fmtClock(mockRemaining)}</span>
+              <span className="text-xs underline">탭하여 돌아가기</span>
+            </button>
+          )}
           <div className="mb-5">
             {tab === "dashboard" && <Dashboard settings={settings} setSettings={setSettings} subjects={subjects} problems={problems} studyLog={studyLog} attendance={attendance} />}
             {tab === "problems" && <ProblemsTab subjects={subjects} problems={problems} setProblems={setProblems} settings={settings} setSettings={setSettings} />}
             {tab === "grading" && <GradingTab problems={problems} setProblems={setProblems} />}
-            {tab === "study" && <StudyTab subjects={subjects} studyLog={studyLog} setStudyLog={setStudyLog} />}
+            {tab === "study" && <StudyTab subjects={subjects} studyLog={studyLog} setStudyLog={setStudyLog} mockProps={mockProps} />}
             {tab === "attendance" && <AttendanceTab attendance={attendance} setAttendance={setAttendance} settings={settings} setSettings={setSettings} />}
             {tab === "drawing" && <DrawingTab subjects={subjects} drawing={drawing} setDrawing={setDrawing} />}
             {tab === "community" && (<CommunityTab nickname={settings.nickname} groupCodes={settings.groupCodes || []} setGroupCodes={(codes) => setSettings(s => ({ ...s, groupCodes: codes }))} studyLog={studyLog} problems={problems} blockedAuthors={settings.blockedAuthors} onBlockAuthor={(author) => setSettings(s => ({ ...s, blockedAuthors: (s.blockedAuthors || []).includes(author) ? s.blockedAuthors : [...(s.blockedAuthors || []), author] }))} isAdmin={settings.isAdmin} />)}
-            {tab === "settings" && <SettingsTab settings={settings} setSettings={setSettings} subjects={subjects} setSubjects={setSubjects} onReset={resetAll} onOpenReport={() => setShowReport(true)} onExport={exportData} onImport={importData} />}
+            {tab === "settings" && <SettingsTab settings={settings} setSettings={setSettings} subjects={subjects} setSubjects={setSubjects} onReset={resetAll} onOpenReport={() => setShowReport(true)} onExport={exportData} onImport={importData} saveAll={saveAll} saveStatus={saveStatus} />}
           </div>
         </div>
       </div>
