@@ -592,6 +592,7 @@ function shortLabel(s) { return SHORT_LABEL[s] || s.slice(0, 2); }
 function PastExamsGrid({ subjects, problems, setProblems }) {
   const rounds = useMemo(buildRounds, []);
   const [selectedId, setSelectedId] = useState(null);
+  const [gridOpen, setGridOpen] = useState(true);
   const seeded = useMemo(() => problems.filter(p => p.seeded), [problems]);
   const doneCount = seeded.filter(p => p.attempts.length > 0).length;
   const selected = seeded.find(p => p.id === selectedId);
@@ -602,8 +603,12 @@ function PastExamsGrid({ subjects, problems, setProblems }) {
 
   return (
     <Card>
-      <SectionLabel n="01">과년도 기출 (2010~2026)</SectionLabel>
-      <div className="text-xs mb-3" style={{ color: C.inkSoft }}>총 {seeded.length}문제 중 {doneCount}개 풀이 · 칸을 눌러 몇 번 풀었는지 확인하고 기록을 남기세요</div>
+      <button onClick={() => setGridOpen(o => !o)} className="w-full flex items-center justify-between">
+        <SectionLabel n="01">과년도 기출 (2010~2026)</SectionLabel>
+        {gridOpen ? <ChevronUp size={16} color={C.inkSoft} /> : <ChevronDown size={16} color={C.inkSoft} />}
+      </button>
+      <div className="text-xs mb-3" style={{ color: C.inkSoft }}>총 {seeded.length}문제 중 {doneCount}개 풀이{gridOpen ? " · 칸을 눌러 몇 번 풀었는지 확인하고 기록을 남기세요" : ""}</div>
+      {gridOpen && (
       <div style={{ overflowX: "auto" }}>
         <table className="text-center" style={{ width: "100%", fontSize: 11 }}>
           <thead>
@@ -635,6 +640,7 @@ function PastExamsGrid({ subjects, problems, setProblems }) {
           </tbody>
         </table>
       </div>
+      )}
 
       {selected && (
         <div className="mt-3 border-t pt-3" style={{ borderColor: C.paperLine }}>
