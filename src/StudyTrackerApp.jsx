@@ -26,18 +26,20 @@ const BRUSH_FONT = "'Nanum Myeongjo', serif";
 const C = {
   ink: "var(--ink)", inkSoft: "var(--inkSoft)", blueprint: "var(--blueprint)", blueprintLight: "var(--blueprintLight)",
   paper: "var(--paper)", paperLine: "var(--paperLine)", card: "var(--card)", amber: "var(--amber)", green: "var(--green)", red: "var(--red)",
-  surface: "var(--surface)",
+  surface: "var(--surface)", tintBlue: "var(--tintBlue)", tintRed: "var(--tintRed)", tintGreen: "var(--tintGreen)", tintAmber: "var(--tintAmber)",
 };
 const THEME_VARS = `
 :root {
   --ink: #16233B; --inkSoft: #3E4E68; --blueprint: #2C6E8E; --blueprintLight: #6FA8C4;
   --paper: #EDEFF2; --paperLine: #C7D3DA; --card: #F8F9FA; --amber: #D9A441; --green: #4C8C6B; --red: #C4453D;
   --surface: #ffffff;
+  --tintBlue: #EAF2F6; --tintRed: #FBEAE9; --tintGreen: #EAF5EE; --tintAmber: #FBF2E1;
 }
 [data-theme='dark'] {
-  --ink: #E7ECF3; --inkSoft: #AAB6C7; --blueprint: #7FB8D4; --blueprintLight: #4E7E96;
-  --paper: #10161F; --paperLine: #2A3547; --card: #1B2333; --amber: #E8B255; --green: #6BB68A; --red: #E37A70;
-  --surface: #1B2333;
+  --ink: #F3F6F9; --inkSoft: #C7D0DE; --blueprint: #7CC1EA; --blueprintLight: #8FC1D9;
+  --paper: #0D1219; --paperLine: #4A5872; --card: #1B2333; --amber: #F0BE6E; --green: #7BC79A; --red: #F08A82;
+  --surface: #242E42;
+  --tintBlue: #23405A; --tintRed: #4A2323; --tintGreen: #21402E; --tintAmber: #4A3A1E;
 }
 `;
 
@@ -110,11 +112,9 @@ function compressImage(file, maxWidth = 1000, quality = 0.7) {
   });
 }
 
-const ADMIN_CODE = "shinjeon2026";
-
 const DEFAULT_SETTINGS = {
   examDate: "2026-09-12", examTime: "09:00", studentName: "", nickname: "", currentAcademy: "", academyLabel: "신전스퀘어", groupCodes: [],
-  goal: "", goalLocked: false, problemGoal: "", problemGoalLocked: false, pastExamsSeeded: false, darkMode: true, blockedAuthors: [], isAdmin: false,
+  goal: "", goalLocked: false, problemGoal: "", problemGoalLocked: false, subjectGoals: {}, pastExamsSeeded: false, darkMode: true, blockedAuthors: [], isAdmin: false, adminCode: "0000",
   periodPass: { "1교시": { passed: false, round: "" }, "2교시": { passed: false, round: "" }, "3교시": { passed: false, round: "" } },
   classSchedule: [], courseStart: "",
 };
@@ -221,7 +221,7 @@ function Dashboard({ settings, setSettings, subjects, problems, studyLog, attend
   return (
     <div className="space-y-5">
       {showReminder && (
-        <div className="text-sm px-3 py-2 border" style={{ borderColor: C.amber, color: C.ink, background: "#FBF2E1" }}>
+        <div className="text-sm px-3 py-2 border" style={{ borderColor: C.amber, color: C.ink, background: C.tintAmber }}>
           🌙 오늘 아직 공부 기록이 없어요. 지금이라도 조금 시작해볼까요?
         </div>
       )}
@@ -252,7 +252,7 @@ function Dashboard({ settings, setSettings, subjects, problems, studyLog, attend
             {PERIODS.map(period => {
               const info = settings.periodPass[period] || { passed: false, round: "" };
               return (
-                <div key={period} className="flex-1 border text-center py-2" style={{ borderColor: info.passed ? C.green : C.paperLine, background: info.passed ? "#EAF5EE" : C.card }}>
+                <div key={period} className="flex-1 border text-center py-2" style={{ borderColor: info.passed ? C.green : C.paperLine, background: info.passed ? C.tintGreen : C.card }}>
                   <div className="text-xs" style={{ color: info.passed ? C.green : C.inkSoft }}>{period}</div>
                   <div className="text-xs font-mono mt-0.5" style={{ color: info.passed ? C.green : C.paperLine }}>
                     {info.passed ? `합격${info.round ? " · " + roundLabel(parseRoundKey(info.round)) : ""}` : "미합격"}
@@ -293,7 +293,7 @@ function Dashboard({ settings, setSettings, subjects, problems, studyLog, attend
         <Card><div className="text-xs" style={{ color: C.inkSoft }}>오늘 공부시간</div><div className="font-mono text-2xl mt-1" style={{ color: C.ink }}>{todayMinutes}분</div></Card>
         <Card>
           <div className="text-xs" style={{ color: C.inkSoft }}>총 푼 문제</div>
-          <div className="font-mono text-2xl mt-1" style={{ color: C.ink }}>{totalSolved}{settings.problemGoal ? <span className="text-sm" style={{ color: C.inkSoft }}>/{settings.problemGoal}</span> : ""}</div>
+          <div className="font-mono text-2xl mt-1" style={{ color: C.ink }}>{totalSolved}{Object.values(settings.subjectGoals || {}).some(v => Number(v) > 0) ? <span className="text-sm" style={{ color: C.inkSoft }}>/{Object.values(settings.subjectGoals || {}).reduce((a, v) => a + (Number(v) || 0), 0)}</span> : ""}</div>
         </Card>
         <Card><div className="text-xs" style={{ color: C.inkSoft }}>미해결 오답</div><div className="font-mono text-2xl mt-1" style={{ color: wrongOpen ? C.red : C.green }}>{wrongOpen}</div></Card>
       </div>
@@ -326,13 +326,26 @@ function Dashboard({ settings, setSettings, subjects, problems, studyLog, attend
         </div>
       </Card>
 
-      {settings.problemGoal > 0 && (
+      {Object.values(settings.subjectGoals || {}).some(v => Number(v) > 0) && (
         <Card>
-          <SectionLabel n="●">목표 문제 수 대비 진행률</SectionLabel>
-          <div className="w-full h-3 border" style={{ borderColor: C.paperLine, background: C.surface }}>
-            <div style={{ width: `${Math.min(100, (totalSolved / settings.problemGoal) * 100)}%`, height: "100%", background: C.blueprint }} />
+          <SectionLabel n="●">과목별 목표 문제 수 대비 진행률</SectionLabel>
+          <div className="space-y-2">
+            {perSubjectSolved.filter(s => Number((settings.subjectGoals || {})[s.subject]) > 0).map(s => {
+              const goal = Number(settings.subjectGoals[s.subject]);
+              const pct = Math.min(100, Math.round((s.count / goal) * 100));
+              return (
+                <div key={s.subject}>
+                  <div className="flex items-center justify-between text-xs mb-0.5" style={{ color: C.inkSoft }}>
+                    <span>{s.subject}</span>
+                    <span className="font-mono">{s.count} / {goal}문제 ({pct}%)</span>
+                  </div>
+                  <div className="w-full h-2.5 border" style={{ borderColor: C.paperLine, background: C.surface }}>
+                    <div style={{ width: `${pct}%`, height: "100%", background: C.blueprint }} />
+                  </div>
+                </div>
+              );
+            })}
           </div>
-          <div className="text-xs mt-1 font-mono" style={{ color: C.inkSoft }}>{totalSolved} / {settings.problemGoal}문제 ({Math.min(100, Math.round((totalSolved / settings.problemGoal) * 100))}%)</div>
         </Card>
       )}
 
@@ -465,11 +478,11 @@ function AttemptEditor({ problemId, attempt, updateAttempt, removeAttempt }) {
       {annotating && attempt.image && (
         <AnnotateCanvas imageSrc={attempt.image} onClose={() => setAnnotating(false)} onSave={(url) => { patch({ image: url }); setAnnotating(false); }} />
       )}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <input type="date" value={attempt.date} onChange={e => patch({ date: e.target.value })} className="border px-2 py-1 text-xs font-mono" style={{ borderColor: C.paperLine }} />
-        <div className="flex gap-1">
-          <button onClick={() => patch({ correct: true })} title="정답"><CheckCircle2 size={18} color={attempt.correct === true ? C.green : C.paperLine} /></button>
-          <button onClick={() => patch({ correct: false })} title="오답"><XCircle size={18} color={attempt.correct === false ? C.red : C.paperLine} /></button>
+        <div className="flex gap-1.5">
+          <button onClick={() => patch({ correct: true })} className="px-2 py-1 text-xs border flex items-center gap-1" style={{ borderColor: attempt.correct === true ? C.green : C.paperLine, color: attempt.correct === true ? C.green : C.inkSoft, background: attempt.correct === true ? C.tintGreen : "transparent" }}><CheckCircle2 size={13} /> 정답</button>
+          <button onClick={() => patch({ correct: false })} className="px-2 py-1 text-xs border flex items-center gap-1" style={{ borderColor: attempt.correct === false ? C.red : C.paperLine, color: attempt.correct === false ? C.red : C.inkSoft, background: attempt.correct === false ? C.tintRed : "transparent" }}><PenLine size={13} /> 오답노트 작성하기</button>
           <button onClick={() => removeAttempt(problemId, attempt.id)}><Trash2 size={16} color={C.paperLine} /></button>
         </div>
       </div>
@@ -500,7 +513,7 @@ function AttemptEditor({ problemId, attempt, updateAttempt, removeAttempt }) {
             <label className="text-xs" style={{ color: C.inkSoft }}>오답 원인 파악</label>
             <div className="flex flex-wrap gap-1.5 mt-1">
               {WRONG_CAUSES.map(cause => { const active = attempt.wrongCauses.includes(cause); return (
-                <button key={cause} onClick={() => toggleCause(cause)} className="px-2 py-1 text-xs border" style={{ borderColor: active ? C.red : C.paperLine, color: active ? C.red : C.inkSoft, background: active ? "#FBEAE9" : "transparent" }}>{cause}</button>
+                <button key={cause} onClick={() => toggleCause(cause)} className="px-2 py-1 text-xs border" style={{ borderColor: active ? C.red : C.paperLine, color: active ? C.red : C.inkSoft, background: active ? C.tintRed : "transparent" }}>{cause}</button>
               ); })}
             </div>
           </div>
@@ -513,17 +526,48 @@ function AttemptEditor({ problemId, attempt, updateAttempt, removeAttempt }) {
   );
 }
 
+function AttemptHistory({ problemId, attempts, updateAttempt, removeAttempt }) {
+  const [openIds, setOpenIds] = useState({});
+  if (!attempts || attempts.length === 0) {
+    return <div className="text-xs" style={{ color: C.inkSoft }}>아직 풀이 기록이 없습니다. "기록" 버튼으로 추가하세요.</div>;
+  }
+  const sorted = [...attempts].reverse(); // newest first
+  const [latest, ...older] = sorted;
+  return (
+    <div className="space-y-2">
+      <AttemptEditor problemId={problemId} attempt={latest} updateAttempt={updateAttempt} removeAttempt={removeAttempt} />
+      {older.length > 0 && (
+        <div className="space-y-1">
+          {older.map(a => openIds[a.id] ? (
+            <div key={a.id}>
+              <AttemptEditor problemId={problemId} attempt={a} updateAttempt={updateAttempt} removeAttempt={removeAttempt} />
+              <button onClick={() => setOpenIds(o => ({ ...o, [a.id]: false }))} className="text-xs underline mt-1" style={{ color: C.inkSoft }}>이 기록 접기</button>
+            </div>
+          ) : (
+            <button key={a.id} onClick={() => setOpenIds(o => ({ ...o, [a.id]: true }))} className="w-full flex items-center justify-between text-xs border px-2 py-1.5" style={{ borderColor: C.paperLine, color: C.inkSoft }}>
+              <span className="font-mono">{a.date}</span>
+              <span style={{ color: a.correct === true ? C.green : a.correct === false ? C.red : C.inkSoft }}>{a.correct === true ? "정답" : a.correct === false ? "오답" : "미채점"}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ---------------- Past exams grid (collapsible) ---------------- */
 const SHORT_LABEL = { "분석·조닝": "분·조", "배치계획": "배치", "평면계획": "평면", "구조계획": "구조", "단면계획": "단면" };
 function shortLabel(s) { return SHORT_LABEL[s] || s.slice(0, 2); }
 
 function PastExamsGrid({ subjects, problems, setProblems }) {
-  const [selectedId, setSelectedId] = useState(null);
-  const [gridOpen, setGridOpen] = useState(false);
   const rounds = useMemo(buildRounds, []);
+  const [selRoundKey, setSelRoundKey] = useState(roundKey(rounds[0]));
+  const [selSubject, setSelSubject] = useState(subjects[0] || "");
   const seeded = useMemo(() => problems.filter(p => p.seeded), [problems]);
   const doneCount = seeded.filter(p => p.attempts.length > 0).length;
-  const selected = seeded.find(p => p.id === selectedId);
+
+  const selRound = parseRoundKey(selRoundKey);
+  const selected = seeded.find(p => p.year === selRound.year && p.round === selRound.round && p.subject === selSubject);
 
   const addAttempt = (problemId) => setProblems(prev => prev.map(p => p.id === problemId ? { ...p, attempts: [...p.attempts, newAttempt()] } : p));
   const updateAttempt = (problemId, attemptId, patch) => setProblems(prev => prev.map(p => p.id === problemId ? { ...p, attempts: p.attempts.map(a => a.id === attemptId ? { ...a, ...patch } : a) } : p));
@@ -531,55 +575,30 @@ function PastExamsGrid({ subjects, problems, setProblems }) {
 
   return (
     <Card>
-      <button onClick={() => setGridOpen(o => !o)} className="w-full flex items-center justify-between">
-        <SectionLabel n="01">과년도 기출 (2010~2026)</SectionLabel>
-        {gridOpen ? <ChevronUp size={16} color={C.inkSoft} /> : <ChevronDown size={16} color={C.inkSoft} />}
-      </button>
-      <div className="text-xs mb-2" style={{ color: C.inkSoft }}>총 {seeded.length}문제 중 {doneCount}개 풀이 {!gridOpen && "· 펼쳐서 회차별로 체크하세요"}</div>
+      <SectionLabel n="01">과년도 기출 (2010~2026)</SectionLabel>
+      <div className="text-xs mb-3" style={{ color: C.inkSoft }}>총 {seeded.length}문제 중 {doneCount}개 풀이</div>
+      <div className="grid grid-cols-2 gap-2 mb-3">
+        <select value={selRoundKey} onChange={e => setSelRoundKey(e.target.value)} className="border px-2 py-1.5 text-sm" style={{ borderColor: C.paperLine }}>
+          {rounds.map(r => <option key={roundKey(r)} value={roundKey(r)}>{roundLabel(r)}</option>)}
+        </select>
+        <select value={selSubject} onChange={e => setSelSubject(e.target.value)} className="border px-2 py-1.5 text-sm" style={{ borderColor: C.paperLine }}>
+          {subjects.map(s => <option key={s} value={s}>{s}</option>)}
+        </select>
+      </div>
 
-      {gridOpen && (
-        <>
-          <div style={{ overflowX: "auto" }}>
-            <table className="text-center" style={{ width: "100%", fontSize: 11 }}>
-              <thead><tr><th></th>{subjects.map(s => <th key={s} className="py-1" style={{ color: C.inkSoft, fontWeight: 500 }}>{shortLabel(s)}</th>)}</tr></thead>
-              <tbody>
-                {rounds.map(r => (
-                  <tr key={roundKey(r)} className="border-t" style={{ borderColor: C.paperLine }}>
-                    <td className="text-left font-mono py-1 pr-2" style={{ color: C.inkSoft, whiteSpace: "nowrap" }}>{roundRowLabel(r)}</td>
-                    {subjects.map(s => {
-                      const p = seeded.find(x => x.year === r.year && x.round === r.round && x.subject === s);
-                      if (!p) return <td key={s} />;
-                      const done = p.attempts.length > 0; const isSel = selectedId === p.id;
-                      return (
-                        <td key={s} className="py-1" style={{ background: isSel ? "#FBF2E1" : "transparent" }}>
-                          <button onClick={() => setSelectedId(isSel ? null : p.id)} className="w-full h-full flex items-center justify-center py-0.5" style={{ border: isSel ? `2px solid ${C.amber}` : "none" }}>
-                            {done ? <CheckCircle2 size={16} color={isSel ? C.amber : C.blueprint} /> : <Circle size={16} color={isSel ? C.amber : C.paperLine} />}
-                          </button>
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          {selected && (
-            <div className="mt-3 border-t pt-3" style={{ borderColor: C.paperLine }}>
-              <div className="flex items-center justify-between mb-2">
-                <div className="text-sm font-medium" style={{ color: C.ink }}>{selected.year}년 {selected.round}회 · {selected.subject}</div>
-                <div className="flex items-center gap-2">
-                  <button onClick={() => addAttempt(selected.id)} className="px-2 py-1 text-xs border flex items-center gap-1" style={{ background: C.blueprint, borderColor: C.blueprint, color: "#fff" }}><Plus size={12} /> 기록</button>
-                  <button onClick={() => setSelectedId(null)}><X size={14} color={C.inkSoft} /></button>
-                </div>
-              </div>
-              <div className="space-y-2">
-                {selected.attempts.length === 0 && <div className="text-xs" style={{ color: C.inkSoft }}>아직 풀이 기록이 없습니다. "기록" 버튼으로 추가하세요.</div>}
-                {[...selected.attempts].reverse().map(a => <AttemptEditor key={a.id} problemId={selected.id} attempt={a} updateAttempt={updateAttempt} removeAttempt={removeAttempt} />)}
-              </div>
+      {selected ? (
+        <div className="border-t pt-3" style={{ borderColor: C.paperLine }}>
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-sm font-medium flex items-center gap-1.5" style={{ color: C.ink }}>
+              {selected.attempts.length > 0 ? <CheckCircle2 size={15} color={C.blueprint} /> : <Circle size={15} color={C.paperLine} />}
+              {selected.year}년 {selected.round}회 · {selected.subject}
             </div>
-          )}
-        </>
+            <button onClick={() => addAttempt(selected.id)} className="px-2 py-1 text-xs border flex items-center gap-1" style={{ background: C.blueprint, borderColor: C.blueprint, color: "#fff" }}><Plus size={12} /> 기록</button>
+          </div>
+          <AttemptHistory problemId={selected.id} attempts={selected.attempts} updateAttempt={updateAttempt} removeAttempt={removeAttempt} />
+        </div>
+      ) : (
+        <div className="text-xs text-center py-3" style={{ color: C.inkSoft }}>이 조합의 문제를 찾을 수 없어요.</div>
       )}
     </Card>
   );
@@ -593,6 +612,8 @@ function ProblemsTab({ subjects, problems, setProblems, settings, setSettings })
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [difficultyFilter, setDifficultyFilter] = useState("전체");
+  const [groupBy, setGroupBy] = useState("subject"); // "subject" | "date"
+  const [collapsedGroups, setCollapsedGroups] = useState({});
 
   const add = () => {
     if (!form.subject) return;
@@ -619,7 +640,24 @@ function ProblemsTab({ subjects, problems, setProblems, settings, setSettings })
 
   const customProblems = useMemo(() => problems.filter(p => !p.seeded), [problems]);
   const filteredCustom = useMemo(() => difficultyFilter === "전체" ? customProblems : customProblems.filter(p => p.difficulty === difficultyFilter), [customProblems, difficultyFilter]);
-  const grouped = useMemo(() => { const g = {}; for (const p of filteredCustom) (g[p.subject] = g[p.subject] || []).push(p); Object.values(g).forEach(arr => arr.sort((a, b) => b.year - a.year)); return g; }, [filteredCustom]);
+  const grouped = useMemo(() => {
+    const g = {};
+    if (groupBy === "subject") {
+      for (const p of filteredCustom) (g[p.subject] = g[p.subject] || []).push(p);
+      Object.values(g).forEach(arr => arr.sort((a, b) => b.year - a.year));
+    } else {
+      for (const p of filteredCustom) {
+        const latest = p.attempts.length ? [...p.attempts].sort((a, b) => b.date.localeCompare(a.date))[0].date : "기록 없음";
+        (g[latest] = g[latest] || []).push(p);
+      }
+    }
+    return g;
+  }, [filteredCustom, groupBy]);
+  const groupKeys = useMemo(() => {
+    const keys = Object.keys(grouped);
+    if (groupBy === "date") return keys.sort((a, b) => a === "기록 없음" ? 1 : b === "기록 없음" ? -1 : b.localeCompare(a));
+    return keys;
+  }, [grouped, groupBy]);
 
   const toggleSelect = (id) => setSelectedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const bulkDelete = () => { setProblems(prev => prev.filter(p => !selectedIds.has(p.id))); setSelectedIds(new Set()); setSelectMode(false); };
@@ -627,18 +665,15 @@ function ProblemsTab({ subjects, problems, setProblems, settings, setSettings })
   return (
     <div className="space-y-5">
       <Card>
-        <SectionLabel n="00">이번 시험 목표 문제 수</SectionLabel>
-        {settings.problemGoalLocked && settings.problemGoal ? (
-          <div className="text-center py-3">
-            <div style={{ fontFamily: BRUSH_FONT, fontSize: 34, fontWeight: 800, color: C.ink }}>{settings.problemGoal}문제</div>
-            <button onClick={() => setSettings({ ...settings, problemGoalLocked: false })} className="text-xs mt-2 underline" style={{ color: C.inkSoft }}>수정하기</button>
-          </div>
-        ) : (
-          <>
-            <input type="number" value={settings.problemGoal} onChange={e => setSettings({ ...settings, problemGoal: e.target.value })} placeholder="예: 150" className="w-full border px-2 py-1.5 text-sm font-mono" style={{ borderColor: C.paperLine }} />
-            <button onClick={() => setSettings({ ...settings, problemGoalLocked: true })} disabled={!settings.problemGoal} className="w-full mt-2 py-1.5 text-sm border" style={{ background: settings.problemGoal ? C.blueprint : "transparent", borderColor: C.blueprint, color: settings.problemGoal ? "#fff" : C.paperLine }}>확인</button>
-          </>
-        )}
+        <SectionLabel n="00">과목별 목표 문제 수</SectionLabel>
+        <div className="space-y-1.5">
+          {subjects.map(s => (
+            <div key={s} className="flex items-center gap-2">
+              <span className="text-xs w-16 flex-shrink-0" style={{ color: C.inkSoft }}>{s}</span>
+              <input type="number" value={(settings.subjectGoals && settings.subjectGoals[s]) || ""} onChange={e => setSettings({ ...settings, subjectGoals: { ...(settings.subjectGoals || {}), [s]: e.target.value } })} placeholder="목표 문제 수" className="flex-1 border px-2 py-1 text-sm font-mono" style={{ borderColor: C.paperLine }} />
+            </div>
+          ))}
+        </div>
       </Card>
 
       <PastExamsGrid subjects={subjects} problems={problems} setProblems={setProblems} />
@@ -647,7 +682,7 @@ function ProblemsTab({ subjects, problems, setProblems, settings, setSettings })
         <SectionLabel n="02">추가 문제 등록</SectionLabel>
         <div className="flex gap-2 mb-2">
           {["기출", "학원과제"].map(s => (
-            <button key={s} onClick={() => setForm({ ...form, source: s })} className="px-3 py-1 text-xs border" style={{ borderColor: form.source === s ? C.blueprint : C.paperLine, color: form.source === s ? C.blueprint : C.inkSoft, background: form.source === s ? "#EAF2F6" : "transparent" }}>{s}</button>
+            <button key={s} onClick={() => setForm({ ...form, source: s })} className="px-3 py-1 text-xs border" style={{ borderColor: form.source === s ? C.blueprint : C.paperLine, color: form.source === s ? C.blueprint : C.inkSoft, background: form.source === s ? C.tintBlue : "transparent" }}>{s}</button>
           ))}
         </div>
         {form.source === "기출" ? (
@@ -675,10 +710,16 @@ function ProblemsTab({ subjects, problems, setProblems, settings, setSettings })
       </Card>
 
       {customProblems.length > 0 && (
-        <div className="flex gap-2 flex-wrap">
-          {["전체", ...DIFFICULTIES.map(d => d.key)].map(f => (
-            <button key={f} onClick={() => setDifficultyFilter(f)} className="px-2 py-1 text-xs border" style={{ borderColor: difficultyFilter === f ? C.blueprint : C.paperLine, color: difficultyFilter === f ? C.blueprint : C.inkSoft }}>{f}</button>
-          ))}
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <div className="flex gap-2">
+            <button onClick={() => setGroupBy("subject")} className="px-2 py-1 text-xs border" style={{ borderColor: groupBy === "subject" ? C.blueprint : C.paperLine, color: groupBy === "subject" ? C.blueprint : C.inkSoft }}>과목별</button>
+            <button onClick={() => setGroupBy("date")} className="px-2 py-1 text-xs border" style={{ borderColor: groupBy === "date" ? C.blueprint : C.paperLine, color: groupBy === "date" ? C.blueprint : C.inkSoft }}>날짜별</button>
+          </div>
+          <div className="flex gap-2 flex-wrap">
+            {["전체", ...DIFFICULTIES.map(d => d.key)].map(f => (
+              <button key={f} onClick={() => setDifficultyFilter(f)} className="px-2 py-1 text-xs border" style={{ borderColor: difficultyFilter === f ? C.blueprint : C.paperLine, color: difficultyFilter === f ? C.blueprint : C.inkSoft }}>{f}</button>
+            ))}
+          </div>
         </div>
       )}
 
@@ -688,46 +729,55 @@ function ProblemsTab({ subjects, problems, setProblems, settings, setSettings })
           onCancel={() => { setSelectMode(false); setSelectedIds(new Set()); }} />
       )}
 
-      {Object.keys(grouped).length === 0 && <div className="text-sm text-center py-6" style={{ color: C.inkSoft }}>표시할 문제가 없습니다.</div>}
-      {Object.entries(grouped).map(([subject, list]) => (
-        <Card key={subject}>
-          <SectionLabel n="●">{subject} ({list.filter(p => p.attempts.length > 0).length}/{list.length})</SectionLabel>
-          <div className="space-y-3">
-            {list.map(p => {
-              const isOpen = !!expanded[p.id];
-              const correctCount = p.attempts.filter(a => a.correct === true).length;
-              const wrongCount = p.attempts.filter(a => a.correct === false).length;
-              const diffInfo = DIFFICULTIES.find(d => d.key === p.difficulty);
-              return (
-                <div key={p.id} className="border-b pb-3 last:border-b-0" style={{ borderColor: C.paperLine }}>
-                  <div className="flex items-center gap-2">
-                    {selectMode && (<button onClick={() => toggleSelect(p.id)}>{selectedIds.has(p.id) ? <CheckCircle2 size={16} color={C.blueprint} /> : <Circle size={16} color={C.paperLine} />}</button>)}
-                    <button onClick={() => setExpanded(e => ({ ...e, [p.id]: !e[p.id] }))} className="flex-1 text-left">
-                      <div className="text-sm" style={{ color: C.ink }}>
-                        <span className="font-mono text-xs mr-1" style={{ color: C.inkSoft }}>{p.source === "기출" ? `${p.year}년 ${p.round}회` : `${p.academy} 과제`}</span>
-                        {p.title || "(제목 없음)"}
+      {groupKeys.length === 0 && <div className="text-sm text-center py-6" style={{ color: C.inkSoft }}>표시할 문제가 없습니다.</div>}
+      {groupKeys.map(key => {
+        const list = grouped[key];
+        const isCollapsed = !!collapsedGroups[key];
+        const label = groupBy === "date" ? (key === "기록 없음" ? "기록 없음" : key) : key;
+        return (
+          <Card key={key}>
+            <button onClick={() => setCollapsedGroups(c => ({ ...c, [key]: !c[key] }))} className="w-full flex items-center justify-between">
+              <SectionLabel n="●">{label} ({list.filter(p => p.attempts.length > 0).length}/{list.length})</SectionLabel>
+              {isCollapsed ? <ChevronDown size={16} color={C.inkSoft} /> : <ChevronUp size={16} color={C.inkSoft} />}
+            </button>
+            {!isCollapsed && (
+              <div className="space-y-3">
+                {list.map(p => {
+                  const isOpen = !!expanded[p.id];
+                  const correctCount = p.attempts.filter(a => a.correct === true).length;
+                  const wrongCount = p.attempts.filter(a => a.correct === false).length;
+                  const diffInfo = DIFFICULTIES.find(d => d.key === p.difficulty);
+                  return (
+                    <div key={p.id} className="border-b pb-3 last:border-b-0" style={{ borderColor: C.paperLine }}>
+                      <div className="flex items-center gap-2">
+                        {selectMode && (<button onClick={() => toggleSelect(p.id)}>{selectedIds.has(p.id) ? <CheckCircle2 size={16} color={C.blueprint} /> : <Circle size={16} color={C.paperLine} />}</button>)}
+                        <button onClick={() => setExpanded(e => ({ ...e, [p.id]: !e[p.id] }))} className="flex-1 text-left">
+                          <div className="text-sm" style={{ color: C.ink }}>
+                            <span className="font-mono text-xs mr-1" style={{ color: C.inkSoft }}>{groupBy === "date" ? p.subject : (p.source === "기출" ? `${p.year}년 ${p.round}회` : `${p.academy} 과제`)}</span>
+                            {p.title || "(제목 없음)"}
+                          </div>
+                          <div className="text-xs mt-0.5" style={{ color: C.inkSoft }}>총 {p.attempts.length}회 풀이 · 정답 {correctCount} · 오답 {wrongCount}</div>
+                        </button>
+                        {!selectMode && (<>
+                          <button onClick={() => cycleDifficulty(p.id)} className="px-1.5 py-0.5 text-xs border" style={{ borderColor: diffInfo ? diffInfo.color : C.paperLine, color: diffInfo ? diffInfo.color : C.paperLine }}>{p.difficulty || "-"}</button>
+                          <button onClick={() => addAttempt(p.id)} className="px-2 py-1 text-xs border flex items-center gap-1" style={{ background: C.blueprint, borderColor: C.blueprint, color: "#fff" }}><Plus size={12} /> 기록</button>
+                          <button onClick={() => setExpanded(e => ({ ...e, [p.id]: !e[p.id] }))}>{isOpen ? <ChevronUp size={16} color={C.inkSoft} /> : <ChevronDown size={16} color={C.inkSoft} />}</button>
+                          <button onClick={() => remove(p.id)}><Trash2 size={14} color={C.paperLine} /></button>
+                        </>)}
                       </div>
-                      <div className="text-xs mt-0.5" style={{ color: C.inkSoft }}>총 {p.attempts.length}회 풀이 · 정답 {correctCount} · 오답 {wrongCount}</div>
-                    </button>
-                    {!selectMode && (<>
-                      <button onClick={() => cycleDifficulty(p.id)} className="px-1.5 py-0.5 text-xs border" style={{ borderColor: diffInfo ? diffInfo.color : C.paperLine, color: diffInfo ? diffInfo.color : C.paperLine }}>{p.difficulty || "-"}</button>
-                      <button onClick={() => addAttempt(p.id)} className="px-2 py-1 text-xs border flex items-center gap-1" style={{ background: C.blueprint, borderColor: C.blueprint, color: "#fff" }}><Plus size={12} /> 기록</button>
-                      <button onClick={() => setExpanded(e => ({ ...e, [p.id]: !e[p.id] }))}>{isOpen ? <ChevronUp size={16} color={C.inkSoft} /> : <ChevronDown size={16} color={C.inkSoft} />}</button>
-                      <button onClick={() => remove(p.id)}><Trash2 size={14} color={C.paperLine} /></button>
-                    </>)}
-                  </div>
-                  {isOpen && !selectMode && (
-                    <div className="mt-2 space-y-2">
-                      {p.attempts.length === 0 && <div className="text-xs" style={{ color: C.inkSoft }}>아직 풀이 기록이 없습니다. "기록" 버튼으로 추가하세요.</div>}
-                      {[...p.attempts].reverse().map(a => <AttemptEditor key={a.id} problemId={p.id} attempt={a} updateAttempt={updateAttempt} removeAttempt={removeAttempt} />)}
+                      {isOpen && !selectMode && (
+                        <div className="mt-2">
+                          <AttemptHistory problemId={p.id} attempts={p.attempts} updateAttempt={updateAttempt} removeAttempt={removeAttempt} />
+                        </div>
+                      )}
                     </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </Card>
-      ))}
+                  );
+                })}
+              </div>
+            )}
+          </Card>
+        );
+      })}
     </div>
   );
 }
@@ -938,7 +988,7 @@ function StudyTab({ subjects, studyLog, setStudyLog }) {
             {isToday && (
               <div className="flex items-center gap-2 mb-2">
                 {isActive ? (
-                  <button onClick={stopTimer} className="flex-1 flex items-center justify-center gap-1.5 py-2 text-sm border" style={{ borderColor: C.red, color: C.red, background: "#FBEAE9" }}><Square size={14} /> 종료 · {fmtClock(elapsed)}</button>
+                  <button onClick={stopTimer} className="flex-1 flex items-center justify-center gap-1.5 py-2 text-sm border" style={{ borderColor: C.red, color: C.red, background: C.tintRed }}><Square size={14} /> 종료 · {fmtClock(elapsed)}</button>
                 ) : (
                   <button onClick={() => startTimer(s)} disabled={!!activeTimer} className="flex-1 flex items-center justify-center gap-1.5 py-2 text-sm border" style={{ background: activeTimer ? "transparent" : C.blueprint, borderColor: C.blueprint, color: activeTimer ? C.paperLine : "#fff", opacity: activeTimer ? 0.5 : 1 }}><Play size={14} /> 시작</button>
                 )}
@@ -1109,6 +1159,7 @@ function DrawingSubjectSection({ subject, entries, setDrawing }) {
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [annotatingId, setAnnotatingId] = useState(null);
   const [comparing, setComparing] = useState(false);
+  const [listOpen, setListOpen] = useState(entries.length <= 3);
 
   const onPick = async (e) => {
     const file = e.target.files && e.target.files[0]; if (!file) return;
@@ -1144,10 +1195,13 @@ function DrawingSubjectSection({ subject, entries, setDrawing }) {
           <button onClick={() => setComparing(false)} className="mt-4 text-xs" style={{ color: "rgba(255,255,255,0.7)" }}>탭하여 닫기</button>
         </div>
       )}
-      <SectionLabel n="●">{subject} ({entries.length}장)</SectionLabel>
+      <button onClick={() => setListOpen(o => !o)} className="w-full flex items-center justify-between mb-1">
+        <SectionLabel n="●">{subject} ({entries.length}장)</SectionLabel>
+        {entries.length > 0 && (listOpen ? <ChevronUp size={16} color={C.inkSoft} /> : <ChevronDown size={16} color={C.inkSoft} />)}
+      </button>
       <button onClick={() => fileRef.current && fileRef.current.click()} className="w-full flex items-center justify-center gap-1.5 border py-3 text-sm mb-3" style={{ borderColor: C.paperLine, color: C.inkSoft }}><Camera size={16} /> 작도 사진 추가</button>
       <input ref={fileRef} type="file" accept="image/*" onChange={onPick} style={{ position: "absolute", width: 1, height: 1, opacity: 0, overflow: "hidden", pointerEvents: "none" }} />
-      {entries.length > 0 && (
+      {listOpen && entries.length > 0 && (
         <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
           <SelectBar selectMode={selectMode} setSelectMode={setSelectMode} count={selectedIds.size}
             onSelectAll={() => setSelectedIds(new Set(entries.slice(0, 3).map(x => x.id)))} onDelete={bulkDelete}
@@ -1157,7 +1211,8 @@ function DrawingSubjectSection({ subject, entries, setDrawing }) {
           )}
         </div>
       )}
-      {selectMode && <div className="text-xs mb-2" style={{ color: C.inkSoft }}>최대 3개까지 골라서 비교할 수 있어요.</div>}
+      {listOpen && selectMode && <div className="text-xs mb-2" style={{ color: C.inkSoft }}>최대 3개까지 골라서 비교할 수 있어요.</div>}
+      {listOpen && (
       <div className="space-y-3">
         {entries.map(x => (
           <div key={x.id} className="border p-2" style={{ borderColor: C.paperLine }}>
@@ -1178,6 +1233,7 @@ function DrawingSubjectSection({ subject, entries, setDrawing }) {
           </div>
         ))}
       </div>
+      )}
     </Card>
   );
 }
@@ -1466,12 +1522,13 @@ function GroupBoard({ nickname, groupCodes, setGroupCodes, studyLog, problems })
   };
 
   const saveGroup = async (code, updated) => { await saveKey(`group:${code}`, updated, true); setGroups(prev => ({ ...prev, [code]: updated })); };
+  const freshGroup = async (code) => (await loadKey(`group:${code}`, null, true)) || groups[code];
 
   const onPickPhoto = async (e) => {
     const file = e.target.files && e.target.files[0]; if (!file || !activeCode) return;
     try {
       const dataUrl = await compressImage(file);
-      const g = groups[activeCode];
+      const g = await freshGroup(activeCode);
       const photo = { id: uid(), author: nickname || "익명", image: dataUrl, caption: photoCaption.trim(), createdAt: new Date().toISOString(), comments: [] };
       const updated = { ...g, photos: [photo, ...(g.photos || [])] };
       await saveGroup(activeCode, updated);
@@ -1481,13 +1538,13 @@ function GroupBoard({ nickname, groupCodes, setGroupCodes, studyLog, problems })
   };
   const addPhotoComment = async (photoId) => {
     const text = (photoCommentDraft[photoId] || "").trim(); if (!text || !activeCode) return;
-    const g = groups[activeCode];
+    const g = await freshGroup(activeCode);
     const updated = { ...g, photos: (g.photos || []).map(ph => ph.id === photoId ? { ...ph, comments: [...(ph.comments || []), { id: uid(), author: nickname || "익명", content: text, createdAt: new Date().toISOString() }] } : ph) };
     await saveGroup(activeCode, updated);
     setPhotoCommentDraft({ ...photoCommentDraft, [photoId]: "" });
   };
   const removePhoto = async (photoId) => {
-    const g = groups[activeCode];
+    const g = await freshGroup(activeCode);
     const updated = { ...g, photos: (g.photos || []).filter(ph => ph.id !== photoId) };
     await saveGroup(activeCode, updated);
   };
@@ -1506,7 +1563,7 @@ function GroupBoard({ nickname, groupCodes, setGroupCodes, studyLog, problems })
         <div className="flex gap-2 mb-2 flex-wrap">
           <span className="text-xs self-center" style={{ color: C.inkSoft }}>교시(복수 선택 가능)</span>
           {PERIODS.map(p => (
-            <button key={p} type="button" onClick={() => togglePeriod(p)} className="px-2 py-1 text-xs border" style={{ borderColor: createForm.periods.includes(p) ? C.blueprint : C.paperLine, color: createForm.periods.includes(p) ? C.blueprint : C.inkSoft, background: createForm.periods.includes(p) ? "#EAF2F6" : "transparent" }}>{p}</button>
+            <button key={p} type="button" onClick={() => togglePeriod(p)} className="px-2 py-1 text-xs border" style={{ borderColor: createForm.periods.includes(p) ? C.blueprint : C.paperLine, color: createForm.periods.includes(p) ? C.blueprint : C.inkSoft, background: createForm.periods.includes(p) ? C.tintBlue : "transparent" }}>{p}</button>
           ))}
         </div>
         <div className="grid grid-cols-2 gap-2 mb-2">
@@ -1540,7 +1597,7 @@ function GroupBoard({ nickname, groupCodes, setGroupCodes, studyLog, problems })
     <div className="space-y-4">
       <div className="flex gap-2 flex-wrap items-center">
         {myGroupList.map(g => (
-          <button key={g.code} onClick={() => setActiveCode(g.code)} className="px-3 py-1.5 text-sm border" style={{ borderColor: activeCode === g.code ? C.blueprint : C.paperLine, color: activeCode === g.code ? C.blueprint : C.inkSoft, background: activeCode === g.code ? "#EAF2F6" : "transparent" }}>{g.name}</button>
+          <button key={g.code} onClick={() => setActiveCode(g.code)} className="px-3 py-1.5 text-sm border" style={{ borderColor: activeCode === g.code ? C.blueprint : C.paperLine, color: activeCode === g.code ? C.blueprint : C.inkSoft, background: activeCode === g.code ? C.tintBlue : "transparent" }}>{g.name}</button>
         ))}
         <button onClick={() => setShowAdd(s => !s)} className="px-3 py-1.5 text-sm border flex items-center gap-1" style={{ borderColor: C.paperLine, color: C.inkSoft }}><Plus size={13} /> 그룹 추가</button>
       </div>
@@ -1602,18 +1659,42 @@ function GroupBoard({ nickname, groupCodes, setGroupCodes, studyLog, problems })
 function CommunityTab({ nickname, groupCodes, setGroupCodes, studyLog, problems, blockedAuthors, onBlockAuthor, isAdmin }) {
   const [sub, setSub] = useState("market"); const [loaded, setLoaded] = useState(false);
   const [marketPosts, setMarketPosts] = useState([]); const [qnaPosts, setQnaPosts] = useState([]);
-  useEffect(() => { (async () => { const [m, q] = await Promise.all([loadKey("community-market", [], true), loadKey("community-qna", [], true)]); setMarketPosts(m); setQnaPosts(q); setLoaded(true); })(); }, []);
-  useEffect(() => { if (loaded) saveKey("community-market", marketPosts, true); }, [marketPosts, loaded]);
-  useEffect(() => { if (loaded) saveKey("community-qna", qnaPosts, true); }, [qnaPosts, loaded]);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const reloadAll = async () => {
+    const [m, q] = await Promise.all([loadKey("community-market", [], true), loadKey("community-qna", [], true)]);
+    setMarketPosts(m); setQnaPosts(q);
+  };
+  useEffect(() => { (async () => { await reloadAll(); setLoaded(true); })(); }, []);
+
+  const selectSub = async (next) => { setSub(next); if (next === "market" || next === "qna") { setRefreshing(true); await reloadAll(); setRefreshing(false); } };
+  const manualRefresh = async () => { setRefreshing(true); await reloadAll(); setRefreshing(false); };
+
+  // Safe mutation: re-fetch the current shared list right before writing, so a
+  // stale local copy never overwrites someone else's newer post.
+  const mutateShared = (key, setLocal) => async (updater) => {
+    try {
+      const current = await loadKey(key, [], true);
+      const next = typeof updater === "function" ? updater(current) : updater;
+      await saveKey(key, next, true);
+      setLocal(next);
+    } catch (e) { console.error("community save failed", e); }
+  };
+  const mutateMarket = mutateShared("community-market", setMarketPosts);
+  const mutateQna = mutateShared("community-qna", setQnaPosts);
+
   return (
     <div className="space-y-4">
-      <div className="text-xs px-3 py-2 border flex items-center gap-1.5" style={{ borderColor: C.blueprintLight, color: C.inkSoft, background: "#EAF2F6" }}><Users size={13} color={C.blueprint} /> 이 게시판은 앱을 사용하는 모든 수험생에게 공개돼요.</div>
+      <div className="text-xs px-3 py-2 border flex items-center gap-1.5" style={{ borderColor: C.blueprintLight, color: C.inkSoft, background: C.tintBlue }}><Users size={13} color={C.blueprint} /> 이 게시판은 앱을 사용하는 모든 수험생에게 공개돼요.</div>
       <div className="flex gap-2">
-        <button onClick={() => setSub("market")} className="flex-1 py-2 text-sm border flex items-center justify-center gap-1.5" style={{ borderColor: sub === "market" ? C.blueprint : C.paperLine, color: sub === "market" ? C.blueprint : C.inkSoft, background: sub === "market" ? "#EAF2F6" : "transparent" }}><Tag size={14} /> 중고나라</button>
-        <button onClick={() => setSub("qna")} className="flex-1 py-2 text-sm border flex items-center justify-center gap-1.5" style={{ borderColor: sub === "qna" ? C.blueprint : C.paperLine, color: sub === "qna" ? C.blueprint : C.inkSoft, background: sub === "qna" ? "#EAF2F6" : "transparent" }}><MessageCircle size={14} /> 질문게시판</button>
-        <button onClick={() => setSub("group")} className="flex-1 py-2 text-sm border flex items-center justify-center gap-1.5" style={{ borderColor: sub === "group" ? C.blueprint : C.paperLine, color: sub === "group" ? C.blueprint : C.inkSoft, background: sub === "group" ? "#EAF2F6" : "transparent" }}>🏁 스터디그룹</button>
+        <button onClick={() => selectSub("market")} className="flex-1 py-2 text-sm border flex items-center justify-center gap-1.5" style={{ borderColor: sub === "market" ? C.blueprint : C.paperLine, color: sub === "market" ? C.blueprint : C.inkSoft, background: sub === "market" ? C.tintBlue : "transparent" }}><Tag size={14} /> 중고나라</button>
+        <button onClick={() => selectSub("qna")} className="flex-1 py-2 text-sm border flex items-center justify-center gap-1.5" style={{ borderColor: sub === "qna" ? C.blueprint : C.paperLine, color: sub === "qna" ? C.blueprint : C.inkSoft, background: sub === "qna" ? C.tintBlue : "transparent" }}><MessageCircle size={14} /> 질문게시판</button>
+        <button onClick={() => selectSub("group")} className="flex-1 py-2 text-sm border flex items-center justify-center gap-1.5" style={{ borderColor: sub === "group" ? C.blueprint : C.paperLine, color: sub === "group" ? C.blueprint : C.inkSoft, background: sub === "group" ? C.tintBlue : "transparent" }}>🏁 스터디그룹</button>
       </div>
-      {!loaded ? (<div className="text-sm text-center py-6" style={{ color: C.inkSoft }}>불러오는 중…</div>) : sub === "market" ? (<MarketBoard nickname={nickname} posts={marketPosts} setPosts={setMarketPosts} blockedAuthors={blockedAuthors} onBlockAuthor={onBlockAuthor} isAdmin={isAdmin} />) : sub === "qna" ? (<QnaBoard nickname={nickname} posts={qnaPosts} setPosts={setQnaPosts} blockedAuthors={blockedAuthors} onBlockAuthor={onBlockAuthor} isAdmin={isAdmin} />) : (<GroupBoard nickname={nickname} groupCodes={groupCodes} setGroupCodes={setGroupCodes} studyLog={studyLog} problems={problems} />)}
+      {(sub === "market" || sub === "qna") && (
+        <button onClick={manualRefresh} className="text-xs px-2 py-1 border flex items-center gap-1" style={{ borderColor: C.paperLine, color: C.inkSoft }}>{refreshing ? "새로고침 중…" : "↻ 새로고침 (다른 사람 글 확인)"}</button>
+      )}
+      {!loaded ? (<div className="text-sm text-center py-6" style={{ color: C.inkSoft }}>불러오는 중…</div>) : sub === "market" ? (<MarketBoard nickname={nickname} posts={marketPosts} setPosts={mutateMarket} blockedAuthors={blockedAuthors} onBlockAuthor={onBlockAuthor} isAdmin={isAdmin} />) : sub === "qna" ? (<QnaBoard nickname={nickname} posts={qnaPosts} setPosts={mutateQna} blockedAuthors={blockedAuthors} onBlockAuthor={onBlockAuthor} isAdmin={isAdmin} />) : (<GroupBoard nickname={nickname} groupCodes={groupCodes} setGroupCodes={setGroupCodes} studyLog={studyLog} problems={problems} />)}
     </div>
   );
 }
@@ -1637,7 +1718,7 @@ function buildReportText(settings, subjects, problems, studyLog, attendance) {
     "",
     "과목별 푼 문제:",
     perSubject,
-    settings.problemGoal ? `목표 문제 수: ${settings.problemGoal}문제` : "",
+    Object.keys(settings.subjectGoals || {}).length ? `과목별 목표 문제 수: ${Object.entries(settings.subjectGoals).filter(([, v]) => Number(v) > 0).map(([s, v]) => `${s} ${v}개`).join(", ")}` : "",
     "",
     `미해결 오답: ${wrongOpen}건 · 극복한 오답: ${overcome}건`,
     "",
@@ -1666,11 +1747,11 @@ function ReportView({ settings, subjects, problems, studyLog, attendance, onClos
 }
 
 /* ---------------- Settings ---------------- */
-function AdminUnlock({ onUnlock }) {
+function AdminUnlock({ adminCode, onUnlock }) {
   const [code, setCode] = useState("");
   const [error, setError] = useState("");
   const submit = () => {
-    if (code === ADMIN_CODE) { onUnlock(); setError(""); }
+    if (code === adminCode) { onUnlock(); setError(""); }
     else setError("코드가 맞지 않아요.");
   };
   return (
@@ -1704,8 +1785,8 @@ function SettingsTab({ settings, setSettings, subjects, setSubjects, onReset, on
       <Card>
         <SectionLabel n="00">화면 모드</SectionLabel>
         <div className="flex gap-2">
-          <button onClick={() => setSettings({ ...settings, darkMode: false })} className="flex-1 py-2 text-sm border" style={{ borderColor: !settings.darkMode ? C.blueprint : C.paperLine, color: !settings.darkMode ? C.blueprint : C.inkSoft, background: !settings.darkMode ? "#EAF2F6" : "transparent" }}>☀️ 밝은 모드</button>
-          <button onClick={() => setSettings({ ...settings, darkMode: true })} className="flex-1 py-2 text-sm border" style={{ borderColor: settings.darkMode ? C.blueprint : C.paperLine, color: settings.darkMode ? C.blueprint : C.inkSoft, background: settings.darkMode ? "#EAF2F6" : "transparent" }}>🌙 다크 모드</button>
+          <button onClick={() => setSettings({ ...settings, darkMode: false })} className="flex-1 py-2 text-sm border" style={{ borderColor: !settings.darkMode ? C.blueprint : C.paperLine, color: !settings.darkMode ? C.blueprint : C.inkSoft, background: !settings.darkMode ? C.tintBlue : "transparent" }}>☀️ 밝은 모드</button>
+          <button onClick={() => setSettings({ ...settings, darkMode: true })} className="flex-1 py-2 text-sm border" style={{ borderColor: settings.darkMode ? C.blueprint : C.paperLine, color: settings.darkMode ? C.blueprint : C.inkSoft, background: settings.darkMode ? C.tintBlue : "transparent" }}>🌙 다크 모드</button>
         </div>
       </Card>
       <Card>
@@ -1729,7 +1810,7 @@ function SettingsTab({ settings, setSettings, subjects, setSubjects, onReset, on
             const info = (settings.periodPass && settings.periodPass[period]) || { passed: false, round: "" };
             return (
               <div key={period} className="flex items-center gap-2">
-                <button onClick={() => setSettings({ ...settings, periodPass: { ...settings.periodPass, [period]: { ...info, passed: !info.passed } } })} className="px-2 py-1 text-xs border flex items-center gap-1" style={{ borderColor: info.passed ? C.green : C.paperLine, color: info.passed ? C.green : C.inkSoft, background: info.passed ? "#EAF5EE" : "transparent" }}><CheckCircle2 size={13} /> {period}</button>
+                <button onClick={() => setSettings({ ...settings, periodPass: { ...settings.periodPass, [period]: { ...info, passed: !info.passed } } })} className="px-2 py-1 text-xs border flex items-center gap-1" style={{ borderColor: info.passed ? C.green : C.paperLine, color: info.passed ? C.green : C.inkSoft, background: info.passed ? C.tintGreen : "transparent" }}><CheckCircle2 size={13} /> {period}</button>
                 <select value={info.round} onChange={e => setSettings({ ...settings, periodPass: { ...settings.periodPass, [period]: { ...info, round: e.target.value } } })} disabled={!info.passed} className="flex-1 border px-2 py-1 text-sm" style={{ borderColor: C.paperLine, opacity: info.passed ? 1 : 0.4 }}>
                   <option value="">합격 회차 선택</option>
                   {rounds.map(r => <option key={roundKey(r)} value={roundKey(r)}>{roundLabel(r)}</option>)}
@@ -1747,12 +1828,16 @@ function SettingsTab({ settings, setSettings, subjects, setSubjects, onReset, on
       <Card>
         <SectionLabel n="●">관리자 모드</SectionLabel>
         {settings.isAdmin ? (
-          <div className="flex items-center justify-between">
-            <span className="text-sm" style={{ color: C.green }}>관리자로 로그인됨 — 커뮤니티 글 삭제 가능</span>
-            <button onClick={() => setSettings({ ...settings, isAdmin: false })} className="text-xs px-2 py-1 border" style={{ borderColor: C.paperLine, color: C.inkSoft }}>해제</button>
-          </div>
+          <>
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-sm" style={{ color: C.green }}>관리자로 로그인됨 — 커뮤니티 글 삭제 가능</span>
+              <button onClick={() => setSettings({ ...settings, isAdmin: false })} className="text-xs px-2 py-1 border" style={{ borderColor: C.paperLine, color: C.inkSoft }}>해제</button>
+            </div>
+            <label className="text-xs" style={{ color: C.inkSoft }}>관리자 코드 변경</label>
+            <input value={settings.adminCode} onChange={e => setSettings({ ...settings, adminCode: e.target.value })} placeholder="새 관리자 코드" className="w-full border px-2 py-1.5 text-sm font-mono mt-1" style={{ borderColor: C.paperLine }} />
+          </>
         ) : (
-          <AdminUnlock onUnlock={() => setSettings({ ...settings, isAdmin: true })} />
+          <AdminUnlock adminCode={settings.adminCode} onUnlock={() => setSettings({ ...settings, isAdmin: true })} />
         )}
       </Card>
       {(settings.blockedAuthors || []).length > 0 && (
@@ -1913,7 +1998,7 @@ export default function App() {
           {TABS.map(t => {
             const Icon = t.icon; const active = tab === t.id;
             return (
-              <button key={t.id} onClick={() => setTab(t.id)} className="w-full flex items-center gap-2.5 px-3 py-2 text-sm" style={{ background: active ? "#EAF2F6" : "transparent", color: active ? C.blueprint : C.inkSoft }}>
+              <button key={t.id} onClick={() => setTab(t.id)} className="w-full flex items-center gap-2.5 px-3 py-2 text-sm" style={{ background: active ? C.tintBlue : "transparent", color: active ? C.blueprint : C.inkSoft }}>
                 <Icon size={16} color={active ? C.blueprint : C.inkSoft} />
                 {t.label}
               </button>
